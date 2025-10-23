@@ -1,0 +1,8 @@
+/build*
+/log/*
+/.vscode
+/cpm_modules
+install/
+.cache/
+.DS_Store
+.deps/

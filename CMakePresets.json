@@ -1,0 +1,75 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 24, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "generator": "Ninja",
+      "toolchainFile": "$env{VCPKG_HOME}/scripts/buildsystems/vcpkg.cmake",
+      "hidden": true,
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "BUILD_SHARED_LIBS": "OFF",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "default",
+      "cacheVariables": {
+        "CMAKE_INSTALL_PREFIX": "/opt/my/amd64",
+        "LIT_USE_LOCAL_PKG": "ON",
+        "LIT_WITH_OPENSSL": "OFF",
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+      },
+      "inherits": [ "base" ]
+    },
+    {
+      "name": "aarch64",
+      "toolchainFile": "/opt/gcc/toolchains/aarch64-linux-gnu.toolchain.cmake",
+      "cacheVariables": {
+        "CPACK_PACKAGING_INSTALL_PREFIX": "/",
+        "CMAKE_INSTALL_PREFIX": "/opt/my/aarch64"
+      },
+      "inherits": [ "base" ]
+    },
+    {
+      "name": "arm",
+      "toolchainFile": "/opt/gcc/toolchains/arm-none-linux.toolchain.cmake",
+      "cacheVariables": {
+        "CPACK_PACKAGING_INSTALL_PREFIX": "/",
+        "CMAKE_INSTALL_PREFIX": "/opt/my/arm32"
+      },
+      "inherits": [ "base" ]
+    }
+  ],
+  "buildPresets": [
+    { "name": "default", "configurePreset": "default" }
+  ],
+  "testPresets": [
+    {
+      "name": "default",
+      "configurePreset": "default",
+      "output": {
+        "outputOnFailure": true,
+        "verbosity": "verbose"
+      },
+      "execution": {
+        "noTestsAction": "error",
+        "scheduleRandom": true,
+        "stopOnFailure": false,
+        "timeout": 60
+      }
+    }
+  ],
+  "workflowPresets": [
+    {
+      "name": "default",
+      "steps": [
+        { "type": "configure", "name": "default" },
+        { "type": "build", "name": "default" },
+        { "type": "test", "name": "default" }
+      ]
+    }
+  ]
+}

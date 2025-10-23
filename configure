@@ -1,0 +1,15 @@
+#!/bin/bash
+
+cd "$(dirname "$0")"
+SRC_ROOT=$(pwd -P)
+
+set -e
+
+if [ "x$1" == "x" ]; then
+  echo "Usage: $0 <preset>"
+  echo "  preset: default, aarch64, arm"
+  exit 1
+fi
+
+rm -rf "${SRC_ROOT}/build/CMakeCache.txt" "${SRC_ROOT}/build/CMakeFiles"
+cmake -Bbuild --preset "$1"
