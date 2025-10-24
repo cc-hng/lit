@@ -2,12 +2,12 @@ cmake_minimum_required(VERSION 3.24 FATAL_ERROR)
 
 project(
   lit
-  VERSION "0.2.0"
+  VERSION "0.1.0"
   LANGUAGES CXX C)
 
 string(COMPARE EQUAL ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR} LIT_IS_TOPLEVEL)
 
-option(LIT_WITH_OPENSSL "with openssl" ON)
+option(LIT_WITH_OPENSSL "with openssl" OFF)
 option(LIT_USE_LOCAL_PKG "use local packages" OFF)
 option(LIT_BUILD_EXAMPLES "Build examples" ${LIT_IS_TOPLEVEL})
 

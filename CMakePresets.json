@@ -11,6 +11,8 @@
       "cacheVariables": {
         "BUILD_SHARED_LIBS": "OFF",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "LIT_USE_LOCAL_PKG": "ON",
+        "LIT_WITH_OPENSSL": "ON",
         "CMAKE_BUILD_TYPE": "Release"
       }
     },
@@ -18,8 +20,6 @@
       "name": "default",
       "cacheVariables": {
         "CMAKE_INSTALL_PREFIX": "/opt/my/amd64",
-        "LIT_USE_LOCAL_PKG": "ON",
-        "LIT_WITH_OPENSSL": "OFF",
         "CMAKE_BUILD_TYPE": "RelWithDebInfo"
       },
       "inherits": [ "base" ]

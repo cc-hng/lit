@@ -2,6 +2,7 @@
 #include "lit/middleware/detail/mime_types.h"
 #include <algorithm>
 #include <filesystem>
+#include <inttypes.h>
 #include <fstream>
 #include <regex>
 #include <sstream>
@@ -210,7 +211,7 @@ StaticFileProvider::operator()(const request_t& req, response_t& res,
 
         if (parse_range(req[http::field::range], size, start, end)) {
             char buf[64] = {0};
-            snprintf(buf, 64, "bytes %lu-%lu/%zu", start, end, size);
+            snprintf(buf, 64, "bytes %" PRIu64 "-%" PRIu64 "/%zu", start, end, size);
             res.result(http::status::partial_content);
             res.set(http::field::content_range, std::string(buf));
             res.text(read_range(t, start, end), detail::get_mime_type(path));
