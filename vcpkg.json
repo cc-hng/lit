@@ -1,5 +1,9 @@
 {
-  "dependencies": [
-    "openssl"
-  ]
+  "dependencies": [],
+  "features": {
+    "openssl": {
+      "description": "Enable OpenSSL support",
+      "dependencies": [ "openssl" ]
+    }
+  }
 }

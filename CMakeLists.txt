@@ -30,7 +30,7 @@ cxx_20()
 #####################################
 find_package(Threads REQUIRED)
 
-set(BOOST_INCLUDE_LIBRARIES "core;asio;beast")
+set(BOOST_INCLUDE_LIBRARIES "asio;beast")
 CPMAddPackage(
   NAME Boost
   VERSION 1.89.0 # Versions less than 1.85.0 may need patches for installation targets.
@@ -61,7 +61,7 @@ target_sources(${PROJECT_NAME} PRIVATE ${cxx_sources})
 target_link_libraries(
   ${PROJECT_NAME} PUBLIC
     std::coroutines Microsoft.GSL::GSL Threads::Threads
-    Boost::headers Boost::core Boost::asio Boost::beast)
+    Boost::asio Boost::beast)
 target_include_directories(
   ${PROJECT_NAME} PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

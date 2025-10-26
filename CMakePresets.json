@@ -13,6 +13,7 @@
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
         "LIT_USE_LOCAL_PKG": "ON",
         "LIT_WITH_OPENSSL": "ON",
+        "VCPKG_MANIFEST_FEATURES": "openssl",
         "CMAKE_BUILD_TYPE": "Release"
       }
     },
