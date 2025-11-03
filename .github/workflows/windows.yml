@@ -26,7 +26,7 @@ jobs:
           key: ${{ github.workflow }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
 
       - name: configure
-        run: cmake -Bbuild -G "Visual Studio 17 2022" -DCC_ENABLE_IO_URING=OFF -DCC_ENABLE_ASAN=OFF
+        run: cmake -Bbuild -G "Visual Studio 17 2022" --preset default
 
       - name: build
-        run: cmake --build build --config Release -j4
+        run: cmake --build build -j4

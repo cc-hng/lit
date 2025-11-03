@@ -30,7 +30,7 @@ cxx_20()
 #####################################
 find_package(Threads REQUIRED)
 
-set(BOOST_INCLUDE_LIBRARIES "asio;beast")
+list(APPEND BOOST_INCLUDE_LIBRARIES "asio;beast")
 CPMAddPackage(
   NAME Boost
   VERSION 1.89.0 # Versions less than 1.85.0 may need patches for installation targets.
@@ -66,20 +66,13 @@ target_include_directories(
   ${PROJECT_NAME} PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>)
-target_link_time_optimization(${PROJECT_NAME} REQUIRED)
+# target_link_time_optimization(${PROJECT_NAME} REQUIRED)
 add_library(${PROJECT_NAME}::${PROJECT_NAME} ALIAS ${PROJECT_NAME})
 
 if (LIT_WITH_OPENSSL)
   target_link_libraries(${PROJECT_NAME} PUBLIC OpenSSL::SSL OpenSSL::Crypto)
-  target_compile_definitions(${PROJECT_NAME} PUBLIC  $<$<BOOL:${LIT_WITH_OPENSSL}>:LIT_WITH_OPENSSL>)
+  target_compile_definitions(${PROJECT_NAME} PUBLIC $<$<BOOL:${LIT_WITH_OPENSSL}>:LIT_WITH_OPENSSL>)
 endif()
-
-# CPMAddPackage("gh:fmtlib/fmt#11.2.0")
-# add_executable(demo ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp)
-# target_link_libraries(demo PRIVATE lit::lit fmt::fmt)
-# target_include_directories(demo PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
-# target_precompile_headers(demo PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src/pch.h")
-# target_link_time_optimization(demo REQUIRED)
 
 if (LIT_BUILD_EXAMPLES)
   add_subdirectory(examples)

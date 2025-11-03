@@ -26,7 +26,7 @@ jobs:
           key: ${{ github.workflow }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
 
       - name: configure
-        run: cmake -Bbuild -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCC_ENABLE_IO_URING=OFF -DCC_ENABLE_ASAN=OFF
+        run: cmake -Bbuild --preset default
 
       - name: build
         run: cmake --build build -j4

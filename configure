@@ -5,7 +5,7 @@ SRC_ROOT=$(pwd -P)
 
 set -e
 
-if [ "x$1" == "x" ]; then
+if [ "$1" == "" ]; then
   echo "Usage: $0 <preset>"
   echo "  preset: default, aarch64, arm"
   exit 1
