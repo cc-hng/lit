@@ -5,15 +5,12 @@
     {
       "name": "base",
       "generator": "Ninja",
-      "toolchainFile": "$env{VCPKG_HOME}/scripts/buildsystems/vcpkg.cmake",
       "hidden": true,
       "binaryDir": "${sourceDir}/build",
       "cacheVariables": {
         "BUILD_SHARED_LIBS": "OFF",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-        "LIT_USE_LOCAL_PKG": "ON",
-        "LIT_WITH_OPENSSL": "ON",
-        "VCPKG_MANIFEST_FEATURES": "openssl",
+        "LIT_USE_SSL": "ON",
         "CMAKE_BUILD_TYPE": "Release"
       }
     },
@@ -21,7 +18,7 @@
       "name": "default",
       "cacheVariables": {
         "CMAKE_INSTALL_PREFIX": "/opt/my/amd64",
-        "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+        "CMAKE_BUILD_TYPE": "Release"
       },
       "inherits": [ "base" ]
     },
@@ -45,7 +42,10 @@
     }
   ],
   "buildPresets": [
-    { "name": "default", "configurePreset": "default" }
+    {
+      "name": "default",
+      "configurePreset": "default"
+    }
   ],
   "testPresets": [
     {

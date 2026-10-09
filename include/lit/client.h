@@ -1,8 +1,11 @@
 #pragma once
 
-#include <boost/asio.hpp>
-#include <boost/beast.hpp>
-#include <lit/multipart_parser.h>
+#include <string>
+#include <string_view>
+
+#include <boost/asio/awaitable.hpp>
+#include <boost/beast/http.hpp>
+#include <boost/beast/http/file_body.hpp>
 
 namespace lit {
 
@@ -11,28 +14,29 @@ namespace http  = beast::http;
 namespace net   = boost::asio;
 
 struct fetch_option_t {
-    using method_type  = boost::beast::http::verb;
-    using headers_type = boost::beast::http::fields;
-
-    method_type method   = method_type::get;
-    headers_type headers = {};
-    std::string body     = "";
-    int timeout          = 30;  // seconds
-    bool keepalive       = false;
-    int max_retry        = 5;
+    int  timeout   = 30;  // seconds
+    bool keepalive = false;
+    int  max_retry = 5;   // rebuild attempts when a keep-alive connection fails
+    bool tls       = false;        // wrap the connection in TLS (https)
+    bool verify    = true;         // verify peer cert + hostname
+    std::string ca = "";           // optional CA file; empty = system default store
 };
 
-net::awaitable<http::response<http::string_body>>
-http_get(std::string_view url, bool keepalive = false,
-         const fetch_option_t::headers_type& headers = {});
+// Zero-copy outbound: host is a name or IP; body/headers are assembled in-place in req.
+template <typename ReqBody, typename RespBody = http::string_body>
+net::awaitable<http::response<RespBody>>
+fetch(std::string_view host, int port, http::request<ReqBody> req,
+      const fetch_option_t& opt = {});
 
-net::awaitable<http::response<http::string_body>>
-http_post(std::string_view url, std::string body, bool keepalive = false,
-          const fetch_option_t::headers_type& headers = {});
+// REST/JSON: text request/response body
+extern template net::awaitable<http::response<http::string_body>>
+fetch<http::string_body, http::string_body>(std::string_view, int,
+        http::request<http::string_body>, const fetch_option_t&);
 
-net::awaitable<http::response<http::string_body>>
-http_upload(std::string_view url, const std::vector<multipart_formdata_t>& formdata,
-            bool keepalive = false, const fetch_option_t::headers_type& headers = {});
+// Static download: empty request body, file response body
+extern template net::awaitable<http::response<http::file_body>>
+fetch<http::empty_body, http::file_body>(std::string_view, int,
+        http::request<http::empty_body>, const fetch_option_t&);
 
 void http_fetch_pool_cleanup();
 

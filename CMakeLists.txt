@@ -7,16 +7,11 @@ project(
 
 string(COMPARE EQUAL ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR} LIT_IS_TOPLEVEL)
 
-option(LIT_WITH_OPENSSL "with openssl" OFF)
-option(LIT_USE_LOCAL_PKG "use local packages" OFF)
+option(LIT_USE_SSL "with openssl" OFF)
 option(LIT_BUILD_EXAMPLES "Build examples" ${LIT_IS_TOPLEVEL})
 
 include(cmake/cpm.cmake)
-if(LIT_USE_LOCAL_PKG)
-  CPMAddPackage(NAME cmake-scripts SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/../../c/cmake-scripts)
-else()
-  CPMAddPackage("gh:cc-hng/cmake-scripts#v0.1.1")
-endif()
+CPMAddPackage("gh:cc-hng/cmake-scripts#v0.1.1")
 include(${cmake-scripts_SOURCE_DIR}/ProjectGuard.cmake)
 include(${cmake-scripts_SOURCE_DIR}/core.cmake)
 
@@ -24,6 +19,9 @@ include(${cmake-scripts_SOURCE_DIR}/core.cmake)
 # compile & link options
 #####################################
 cxx_20()
+
+set(LIT_MAX_HTTP_HEADERS 8192 CACHE STRING
+    "Maximum HTTP request header size in bytes")
 
 #####################################
 # third-party packages
@@ -42,7 +40,7 @@ CPMAddPackage(
 CPMAddPackage("gh:microsoft/GSL#v4.2.0")
 CPMAddPackage("gh:cc-hng/std_coroutines#v1.0.3")
 
-if (LIT_WITH_OPENSSL)
+if (LIT_USE_SSL)
   find_package(OpenSSL REQUIRED)
 endif()
 
@@ -68,11 +66,15 @@ target_include_directories(
     $<INSTALL_INTERFACE:include>)
 # target_link_time_optimization(${PROJECT_NAME} REQUIRED)
 add_library(${PROJECT_NAME}::${PROJECT_NAME} ALIAS ${PROJECT_NAME})
+target_compile_definitions(${PROJECT_NAME}
+    PUBLIC
+      $<$<BOOL:${LIT_USE_SSL}>:LIT_USE_SSL>
+      LIT_MAX_HTTP_HEADERS=${LIT_MAX_HTTP_HEADERS})
 
-if (LIT_WITH_OPENSSL)
+if (LIT_USE_SSL)
   target_link_libraries(${PROJECT_NAME} PUBLIC OpenSSL::SSL OpenSSL::Crypto)
-  target_compile_definitions(${PROJECT_NAME} PUBLIC $<$<BOOL:${LIT_WITH_OPENSSL}>:LIT_WITH_OPENSSL>)
 endif()
+
 
 if (LIT_BUILD_EXAMPLES)
   add_subdirectory(examples)

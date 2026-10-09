@@ -12,4 +12,4 @@ if [ "$1" == "" ]; then
 fi
 
 rm -rf "${SRC_ROOT}/build/CMakeCache.txt" "${SRC_ROOT}/build/CMakeFiles"
-cmake -Bbuild --preset "$1"
+cmake -Bbuild --preset "$1" -DCMAKE_TOOLCHAIN_FILE=/opt/cmake/toolchain/zig-linux-x64.cmake -DCMAKE_BUILD_TYPE=Release

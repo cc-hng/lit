@@ -7,7 +7,7 @@
 namespace lit {
 
 namespace detail {
-static const std::unordered_map<std::string, std::string> kMimeTypes = {
+static const std::unordered_map<std::string_view, std::string_view> kMimeTypes = {
     {".323",           "text/h323"                                                              },
     {".3gp",           "video/3gpp"                                                             },
     {".aab",           "application/x-authoware-bin"                                            },
@@ -498,8 +498,8 @@ static const std::unordered_map<std::string, std::string> kMimeTypes = {
 }
 
 inline std::string_view get_mime_type(std::string_view extension) {
-    auto it = detail::kMimeTypes.find(std::string(extension));
-    return it != detail::kMimeTypes.end() ? (std::string_view)it->second : "text/plain";
+    auto it = detail::kMimeTypes.find(extension);
+    return it != detail::kMimeTypes.end() ? it->second : "text/plain";
 }
 
 }  // namespace lit

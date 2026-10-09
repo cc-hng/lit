@@ -1,5 +1,6 @@
 #include "lit/router.h"
-#include <regex>
+#include <cctype>
+#include <stdexcept>
 
 namespace lit {
 
@@ -15,13 +16,17 @@ Router::Router() {
 Router::~Router() {
 }
 
-Router& Router::use(const route_handler& h) {
-    routes_.emplace_back(h);
+Router& Router::use(route_handler&& h) {
+    routes_.push_back({
+        (http::verb)-1, {false, {}, {}},
+         std::move(h), true
+    });
     return *this;
 }
 
-Router& Router::use(route_handler&& h) {
-    routes_.emplace_back(std::move(h));
+Router& Router::add_route(http::verb method, route_pattern pattern, route_handler&& h,
+                          bool needs_next) {
+    routes_.push_back({method, std::move(pattern), std::move(h), needs_next});
     return *this;
 }
 
@@ -29,11 +34,10 @@ RouterContext Router::group(std::string_view prefix) {
     return RouterContext(prefix, *this);
 }
 
-net::awaitable<void>
-Router::operator()(const request_t& req, response_t& res, const next_handler& go) {
-    if (GSL_LIKELY(req.compile_target())) {
+net::awaitable<void> Router::handle(const request_t& req, response_t& res) {
+    if (req.compile_target()) [[likely]] {
         try {
-            co_await handle_one(0, req, res, go);
+            co_await handle_from(0, req, res);
         } catch (std::exception& e) {
             res.result(http::status::internal_server_error);
             res.text(e.what());
@@ -44,100 +48,169 @@ Router::operator()(const request_t& req, response_t& res, const next_handler& go
     }
 }
 
-net::awaitable<void>  //
-Router::handle_one(int index, const request_t& req, response_t& resp,
-                   const next_handler& go) {
-    if (GSL_UNLIKELY(index >= routes_.size())) {
-        if (go) {
-            co_await go();
+// Iterative dispatch: the hot path (no middleware chain) is a plain loop with
+// zero coroutine frames per route miss. Only handlers that call their `next`
+// (middleware) drop into the small recursive chain handler.
+net::awaitable<void> Router::handle_from(size_t index, const request_t& req,
+                                         response_t& resp) {
+    const auto url = req.get_url();
+    for (size_t i = index; i < routes_.size(); ++i) {
+        auto& entry = routes_[i];
+        if (entry.method != (http::verb)-1 && req.method() != entry.method) {
+            continue;
         }
+
+        if (entry.pattern.enabled) {
+            req.parameters_.clear();
+            if (entry.pattern.matcher) {
+                auto [matched, params] = entry.pattern.matcher(url);
+                if (!matched) {
+                    continue;
+                }
+                if (params) {
+                    req.parameters_ = std::move(*params);
+                }
+            } else if (entry.pattern.literal != url) {
+                continue;
+            }
+        }
+
+        if (!entry.needs_next) {
+            const next_handler empty_next{};
+            co_await entry.handler(req, resp, empty_next);
+            co_return;
+        }
+
+        next_handler next = [&]() { return handle_from(i + 1, req, resp); };
+        co_await entry.handler(req, resp, next);
         co_return;
     }
+}
+namespace {
 
-    const auto& fn = routes_.at(index);
-    auto next      = [&, this, index]() -> net::awaitable<void> {
-        co_await handle_one(index + 1, req, resp, nullptr);
-    };
-    co_await fn(req, resp, next);
+struct route_segment {
+    enum class type { literal, parameter, wildcard };
+
+    type kind;
+    std::string value;
+};
+
+bool contains_space(std::string_view value) {
+    for (unsigned char ch : value) {
+        if (std::isspace(ch)) {
+            return true;
+        }
+    }
+    return false;
 }
 
-std::function<std::tuple<bool, Router::kv_t>(std::string_view)>
-Router::compile_route(std::string_view path, bool whole) {
+bool valid_parameter_name(std::string_view name) {
+    return !name.empty() && name.find_first_of(":*") == std::string_view::npos;
+}
+
+}  // namespace
+
+Router::route_pattern Router::compile_route(std::string_view path) {
     class ParsePath {
     public:
-        ParsePath() = default;
+        void init(std::string_view path) {
+            path_        = std::string(path);
+            size_t start = 0;
+            while (true) {
+                const auto slash = path_.find('/', start);
+                const auto end   = slash == std::string::npos ? path_.size() : slash;
+                const std::string_view segment(path_.data() + start, end - start);
 
-        void init(std::string_view path, bool whole) {
-            bool is_regex                         = false;
-            std::string regex                     = std::string(path);
-            std::string_view::size_type start_pos = 0;
-            while (start_pos != std::string_view::npos) {
-                start_pos = regex.find(':', start_pos);
-                if (start_pos != std::string_view::npos) {
-                    const auto next_end_pos  = regex.find(':', start_pos + 1);
-                    const auto slash_end_pos = regex.find('/', start_pos);
-                    const auto end_pos       = std::min(slash_end_pos, next_end_pos);
-                    const auto key_name =
-                        regex.substr(start_pos + 1, end_pos - start_pos - 1);
-
-                    if (GSL_UNLIKELY(key_name.empty())) {
-                        throw std::runtime_error(std::string("Empty parameter name "
-                                                             "found "
-                                                             "in path: ")
-                                                 + path.data());
+                if (!segment.empty() && segment.front() == ':') {
+                    const auto name = segment.substr(1);
+                    if (!valid_parameter_name(name)) [[unlikely]] {
+                        throw std::runtime_error("Invalid parameter name in path: " + path_);
                     }
-
-                    if (next_end_pos != std::string_view::npos && end_pos == next_end_pos) {
-                        regex.replace(start_pos, end_pos - start_pos + 1, "(.+)");
-                    } else {
-                        regex.replace(start_pos, end_pos - start_pos, "([^/\\s]+)");
+                    segments_.push_back({route_segment::type::parameter, std::string(name)});
+                    dynamic_ = true;
+                } else if (!segment.empty() && segment.front() == '*') {
+                    const auto name = segment.substr(1);
+                    if (slash != std::string::npos || !valid_parameter_name(name))
+                        [[unlikely]] {
+                        throw std::runtime_error("Invalid wildcard parameter in path: "
+                                                 + path_);
                     }
-                    keys_.emplace_back(key_name);
-                    is_regex = true;
+                    segments_.push_back({route_segment::type::wildcard, std::string(name)});
+                    dynamic_ = true;
+                } else {
+                    segments_.push_back(
+                        {route_segment::type::literal, std::string(segment)});
                 }
-            }
-            regex_str_ = regex;
-            if (is_regex) {
-                regex = "^" + regex;
-                if (whole) {
-                    regex += "$";
+
+                if (slash == std::string::npos) {
+                    break;
                 }
-                re_ = std::make_shared<std::regex>(regex);
+                start = slash + 1;
             }
         }
 
-        std::tuple<bool, kv_t> operator()(std::string_view raw) {
-            if (!re_) {
-                return std::make_tuple(std::string_view(regex_str_) == raw, std::nullopt);
+        std::tuple<bool, std::optional<route_parameters>>
+        operator()(std::string_view raw) const {
+            if (!dynamic_) {
+                return {raw == path_, std::nullopt};
             }
 
-            std::cmatch cm;
-            auto p = static_cast<const char*>(raw.data());
-            if (!std::regex_match(p, p + raw.size(), cm, *re_)) {
-                return std::make_tuple(false, std::nullopt);
+            route_parameters params;
+            size_t raw_start = 0;
+            for (size_t i = 0; i < segments_.size(); ++i) {
+                const auto& segment = segments_[i];
+                const auto slash    = raw.find('/', raw_start);
+
+                if (segment.kind == route_segment::type::wildcard) {
+                    if (i + 1 != segments_.size() || raw_start == raw.size()) {
+                        return {false, std::nullopt};
+                    }
+                    const auto value = raw.substr(raw_start);
+                    params.emplace_back(segment.value, std::string(value));
+                    return {true, params};
+                }
+
+                const auto raw_end = slash == std::string::npos ? raw.size() : slash;
+                const auto value   = raw.substr(raw_start, raw_end - raw_start);
+                if (segment.kind == route_segment::type::parameter) {
+                    if (value.empty() || contains_space(value)) {
+                        return {false, std::nullopt};
+                    }
+                    params.emplace_back(segment.value, std::string(value));
+                } else if (value != segment.value) {
+                    return {false, std::nullopt};
+                }
+
+                if (i + 1 != segments_.size()) {
+                    if (slash == std::string::npos) {
+                        return {false, std::nullopt};
+                    }
+                    raw_start = slash + 1;
+                } else if (slash != std::string::npos) {
+                    return {false, std::nullopt};
+                }
             }
 
-            if (cm.size() - 1 != keys_.size()) {
-                return std::make_tuple(false, std::nullopt);
-            }
-
-            typename kv_t::value_type params;
-            int i = 1;
-            for (auto key : keys_) {
-                params.emplace(std::move(key), cm[i++].str());
-            }
-            return std::make_tuple(true, params);
+            return {true, params};
         }
+
+        bool dynamic() const { return dynamic_; }
+        const std::string& path() const { return path_; }
 
     private:
-        std::string regex_str_;
-        std::shared_ptr<std::regex> re_ = nullptr;
-        std::vector<std::string> keys_;
+        std::string path_;
+        std::vector<route_segment> segments_;
+        bool dynamic_ = false;
     };
 
     ParsePath pp;
-    pp.init(path, whole);
-    return std::move(pp);
+    pp.init(path);
+    if (!pp.dynamic()) {
+        return route_pattern{true, pp.path(), {}};
+    }
+    return route_pattern{true, {}, [pp = std::move(pp)](std::string_view raw) {
+                             return pp(raw);
+                         }};
 }
 
 }  // namespace lit

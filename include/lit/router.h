@@ -1,6 +1,8 @@
 #pragma once
 
+#include <functional>
 #include <optional>
+#include <string>
 #include <tuple>
 #include <type_traits>
 #include <vector>
@@ -30,44 +32,42 @@ constexpr bool is_awaitable_v = is_awaitable<T>::value;
 class RouterContext;
 
 class Router final : boost::noncopyable {
-    using kv_t = std::optional<std::unordered_map<std::string, std::string>>;
-    std::vector<route_handler> routes_;
+    using route_matcher =
+        std::function<std::tuple<bool, std::optional<route_parameters>>(std::string_view)>;
+
+    struct route_pattern {
+        bool enabled;
+        std::string literal;
+        route_matcher matcher;
+    };
+
+    struct route_entry {
+        http::verb method;
+        route_pattern pattern;
+        route_handler handler;
+        bool needs_next;
+    };
+
+    std::vector<route_entry> routes_;
 
 public:
     Router();
     ~Router();
 
     RouterContext group(std::string_view prefix);
-
-    Router& use(const route_handler& h);
     Router& use(route_handler&& h);
 
     template <typename H>
     std::enable_if_t<detail::is_route_handler_v<H>, Router&>
     route(http::verb method, std::string_view path, H&& h) {
-        return use([method, parse_path = compile_route(path), h0 = std::forward<H>(h)](
-                       const request_t& req, response_t& res,
-                       const next_handler& go) mutable -> net::awaitable<void> {
-            if (method != (http::verb)-1) {
-                if (req.method() != method) {
-                    co_return co_await go();
-                }
-            }
-
-            auto [matched, params] = parse_path(req.path);
-            if (!matched) {
-                co_return co_await go();
-            }
-
-            req.params = std::move(params);
-            co_await h0(req, res, go);
-        });
+        return add_route(method, compile_route(path), std::forward<H>(h), true);
     }
 
     template <typename H>
     std::enable_if_t<!detail::is_route_handler_v<H>, Router&>
     route(http::verb method, std::string_view path, H&& h) {
-        return route(method, path, make_handle(std::forward<H>(h)));
+        return add_route(method, compile_route(path), make_handle(std::forward<H>(h)),
+                         false);
     }
 
     template <typename H>
@@ -85,12 +85,12 @@ public:
         return route((http::verb)-1, path, std::forward<H>(h));
     }
 
-    net::awaitable<void>
-    operator()(const request_t& req, response_t& res, const next_handler& go = nullptr);
+    net::awaitable<void> handle(const request_t& req, response_t& res);
+    net::awaitable<void> handle_from(size_t index, const request_t& req, response_t& resp);
 
 private:
-    net::awaitable<void>
-    handle_one(int index, const request_t& req, response_t& resp, const next_handler& go);
+    Router& add_route(http::verb method, route_pattern pattern, route_handler&& h,
+                      bool needs_next);
 
     template <typename Handler>
     static auto make_handle(Handler&& h) -> route_handler {
@@ -108,15 +108,7 @@ private:
                 }};
     }
 
-    /// @brief parse path to a kv map according to rule_t
-    ///        throw a exception if parse failed.
-    /// @param target:
-    ///             "/user/:id/:name"
-    ///             "/user/:id/:name?address=aa&phone=123456"
-    ///         rule:
-    /// @return /user/1/J -> {"id": "1", "name": "J"}
-    static std::function<std::tuple<bool, kv_t>(std::string_view)>
-    compile_route(std::string_view path, bool whole = true);
+    static route_pattern compile_route(std::string_view path);
 };
 
 class RouterContext : boost::noncopyable {

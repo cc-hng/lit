@@ -2,7 +2,7 @@
 #include <boost/asio.hpp>
 #include <boost/beast/core.hpp>
 #include <boost/beast/websocket.hpp>
-#include <fmt/core.h>
+#include <fmt/format.h>
 
 namespace net   = boost::asio;
 namespace beast = boost::beast;

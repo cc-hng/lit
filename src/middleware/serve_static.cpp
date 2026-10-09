@@ -2,12 +2,11 @@
 #include "lit/middleware/detail/mime_types.h"
 #include <algorithm>
 #include <filesystem>
-#include <inttypes.h>
 #include <fstream>
-#include <regex>
 #include <sstream>
 #include <string>
 #include <vector>
+#include <inttypes.h>
 #include <lit/object.h>
 #include <string.h>
 namespace fs = std::filesystem;
@@ -29,49 +28,41 @@ std::string read_range(std::ifstream& f, size_t start, size_t end) {
 }
 
 bool parse_range(std::string_view range, uint64_t size, uint64_t& start, uint64_t& end) {
-    static std::regex range_regex(R"(bytes=(\d*)-(\d*))");
-    const char* p = range.data();
-    std::cmatch match;
-    if (std::regex_match(p, p + range.size(), match, range_regex)) {
-        try {
-            bool exist1 = match[1].length();
-            bool exist2 = match[2].length();
-            if (!exist1 && !exist2) return false;
-            if (exist1) start = std::stoull(match[1]);
-            if (exist2) end = std::stoull(match[2]);
-            if (!exist1) {
-                start = size - end;
-                end   = size - 1;
-            }
-            if (!exist2) {
-                end = start + lit::middleware::StaticFileProvider::CHUNK_SIZE - 1;
-            }
-            if (end >= size) end = size - 1;
-            if (start > end || start >= size) return false;
-        } catch (...) {
-            return false;
+    if (range.substr(0, 6) != "bytes=") return false;
+    range.remove_prefix(6);
+    const auto dash = range.find('-');
+    if (dash == std::string_view::npos) return false;
+    const auto a = range.substr(0, dash);
+    const auto b = range.substr(dash + 1);
+    const auto is_digits = [](std::string_view s) {
+        return s.empty() || std::all_of(s.begin(), s.end(), [](char c) { return c >= '0' && c <= '9'; });
+    };
+    if (!is_digits(a) || !is_digits(b)) return false;
+    try {
+        const bool has_a = !a.empty(), has_b = !b.empty();
+        if (!has_a && !has_b) return false;
+        if (has_a) start = std::stoull(std::string(a));
+        if (has_b) end   = std::stoull(std::string(b));
+        if (!has_a) {          // bytes=-N : last N bytes
+            start = size - end;
+            end   = size - 1;
         }
+        if (!has_b) {          // bytes=N- : from N, capped to a chunk
+            end = start + lit::middleware::StaticFileProvider::CHUNK_SIZE - 1;
+        }
+        if (end >= size) end = size - 1;
+        if (start > end || start >= size) return false;
+    } catch (...) {
+        return false;
     }
     return true;
 }
 
-inline bool str_starts_with(std::string_view s, std::string_view prefix) {
-    const auto size = prefix.size();
-    return s.size() >= size && memcmp(s.data(), prefix.data(), size) == 0;
-}
-
-inline bool str_ends_with(std::string_view s, std::string_view prefix) {
-    const size_t slen = s.size();
-    const size_t plen = prefix.size();
-    const char* ps    = s.data();
-    return slen >= plen && memcmp(ps + slen - plen, prefix.data(), plen) == 0;
-}
-
 inline bool str_is_directory(std::string_view path) {
 #ifdef BOOST_MSVC
-    return str_ends_with(path, "\\");
+    return path.ends_with("\\");
 #else
-    return str_ends_with(path, "/");
+    return path.ends_with("/");
 #endif
 }
 
@@ -163,16 +154,24 @@ net::awaitable<void>  //
 StaticFileProvider::operator()(const request_t& req, response_t& res,
                                const next_handler& go) {
     auto method = req.method();
-    if (GSL_UNLIKELY(method != http::verb::get && method != http::verb::head)) {
+    auto url    = req.get_url();
+    if (method != http::verb::get && method != http::verb::head) [[unlikely]] {
         co_return co_await go();
     }
 
-    if (!str_starts_with(req.path, mount_point_)) {
+    if (!url.starts_with(mount_point_)) {
         co_return co_await go();
     }
 
-    auto path = pathcat(doc_root_, req.path.substr(mount_point_.size()));
-    if (!fs::exists(path)) {
+    auto path = pathcat(doc_root_, url.substr(mount_point_.size()));
+    // ponytail: canonicalize to resolve .. and symlinks; reject paths escaping doc_root.
+    // Upgrade path: use fs::canonical (requires absolute input) if symlink resolution is desired.
+    const auto canon = fs::weakly_canonical(path);
+    const auto root   = fs::weakly_canonical(doc_root_);
+    if (!canon.string().starts_with(root.string())) {
+        co_return co_await go();
+    }
+    if (!fs::exists(canon)) {
         co_return co_await go();
     }
 
@@ -181,8 +180,8 @@ StaticFileProvider::operator()(const request_t& req, response_t& res,
         path.append("index.html");
 
         if (!fs::exists(path) && fs::is_directory(path0)) {
-            auto content = render_directory(mount_point_, doc_root_,
-                                            req.path.substr(mount_point_.size()));
+            auto content =
+                render_directory(mount_point_, doc_root_, url.substr(mount_point_.size()));
             res.text(content, "text/html");
             co_return;
         }
@@ -203,9 +202,9 @@ StaticFileProvider::operator()(const request_t& req, response_t& res,
 
         // Send whole file
         if (req.find(http::field::range) == req.end()) {
-            res.text(std::string((std::istreambuf_iterator<char>(t)),
-                                 std::istreambuf_iterator<char>()),
-                     detail::get_mime_type(path));
+            res.result(http::status::ok);
+            res.set_body_owned({std::istreambuf_iterator<char>(t),
+                                std::istreambuf_iterator<char>()});
             co_return;
         }
 
@@ -214,7 +213,7 @@ StaticFileProvider::operator()(const request_t& req, response_t& res,
             snprintf(buf, 64, "bytes %" PRIu64 "-%" PRIu64 "/%zu", start, end, size);
             res.result(http::status::partial_content);
             res.set(http::field::content_range, std::string(buf));
-            res.text(read_range(t, start, end), detail::get_mime_type(path));
+            res.set_body_owned(read_range(t, start, end));
         } else {
             res.result(http::status::range_not_satisfiable);
             res.set(http::field::content_range, "bytes */" + std::to_string(size));
